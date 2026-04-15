@@ -41,6 +41,35 @@ const fetchOrderDetails = async (orderId) => {
     }
 };
 
+// Función para construir tarjetas visuales de productos
+const buildProductCards = (products) => {
+    const cards = products.map(product => {
+        // Obtener la imagen del producto
+        let imageUrl = '';
+        if (product.images && product.images.length > 0) {
+            imageUrl = product.images[0].src;
+        }
+        
+        // Formatear precio
+        const price = product.price ? `$${parseFloat(product.price).toLocaleString('es-CL')}` : 'Consultar precio';
+        
+        // Crear tarjeta
+        return {
+            type: "info",
+            title: product.name,
+            subtitle: price,
+            image: {
+                rawUrl: imageUrl
+            },
+            anchor: {
+                href: product.permalink
+            }
+        };
+    });
+    
+    return cards;
+};
+
 app.get('/products', async (req, res) => {
     const queryParams = req.query;
     const products = await fetchProducts(queryParams);
@@ -66,18 +95,17 @@ app.post('/webhook', async (req, res) => {
     const { queryResult } = req.body;
     console.log('Webhook received:', JSON.stringify(req.body, null, 2));
     
-    const intentName = queryResult?.intent?.displayName || 'Default';
     const parameters = queryResult?.parameters || {};
     const searchTerm = parameters.search || '';
     const orderId = parameters.orderId || '';
     
-    console.log('Intent:', intentName, 'Search:', searchTerm, 'OrderId:', orderId);
+    console.log('Search:', searchTerm, 'OrderId:', orderId);
 
     try {
         // Buscar productos por término de búsqueda
         if (searchTerm) {
             const queryParams = {
-                per_page: 5,
+                per_page: 4,
                 search: searchTerm,
                 orderby: 'date',
                 order: 'desc'
@@ -87,12 +115,37 @@ app.post('/webhook', async (req, res) => {
             
             if (products.length === 0) {
                 res.json({
-                    fulfillmentText: `Lo siento, no encontré productos que coincidan con "${searchTerm}". ¿Te gustaría que te muestre nuestras categorías principales? Tenemos muebles para living, comedor, dormitorio y hermosas cortinas.`
+                    fulfillment_response: {
+                        messages: [{
+                            text: {
+                                text: [`Lo siento, no encontré productos que coincidan con "${searchTerm}". ¿Te gustaría que te muestre nuestras categorías principales? Tenemos muebles para living, comedor, dormitorio y hermosas cortinas.`]
+                            }
+                        }]
+                    }
                 });
             } else {
-                const productList = products.map(p => `• ${p.name} - ${p.price ? '$' + p.price : 'Consultar precio'}`).join('\n');
+                const productCards = buildProductCards(products);
+                
                 res.json({
-                    fulfillmentText: `¡Encontré estos productos para ti! Aquí están los más recientes que coinciden con "${searchTerm}":\n\n${productList}\n\n¿Te gustaría ver más detalles de alguno? Puedes visitar nuestra tienda en ${process.env.SHOP_URL}/tienda`
+                    fulfillment_response: {
+                        messages: [
+                            {
+                                text: {
+                                    text: [`¡Encontré estos productos para ti! Aquí están los que coinciden con "${searchTerm}":`]
+                                }
+                            },
+                            {
+                                payload: {
+                                    richContent: [productCards]
+                                }
+                            },
+                            {
+                                text: {
+                                    text: [`¿Te gustaría ver más detalles de alguno? Haz clic en la tarjeta para ir al producto.`]
+                                }
+                            }
+                        ]
+                    }
                 });
             }
         }
@@ -102,7 +155,13 @@ app.post('/webhook', async (req, res) => {
             
             if (orderDetails.error) {
                 res.json({
-                    fulfillmentText: `Lo siento, no pude encontrar el pedido #${orderId}. Por favor verifica el número e inténtalo de nuevo.`
+                    fulfillment_response: {
+                        messages: [{
+                            text: {
+                                text: [`Lo siento, no pude encontrar el pedido #${orderId}. Por favor verifica el número e inténtalo de nuevo.`]
+                            }
+                        }]
+                    }
                 });
             } else {
                 const statusMap = {
@@ -115,15 +174,23 @@ app.post('/webhook', async (req, res) => {
                     'failed': 'Fallido'
                 };
                 const status = statusMap[orderDetails.status] || orderDetails.status;
+                const orderDate = orderDetails.date_created ? new Date(orderDetails.date_created).toLocaleDateString('es-CL') : 'No disponible';
+                
                 res.json({
-                    fulfillmentText: `El pedido #${orderId} se encuentra: ${status}. Fecha del pedido: ${orderDetails.date_created ? new Date(orderDetails.date_created).toLocaleDateString('es-CL') : 'No disponible'}. Total: $${orderDetails.total || 'N/A'}`
+                    fulfillment_response: {
+                        messages: [{
+                            text: {
+                                text: [`📦 Información de tu pedido #${orderId}:\n\n• Estado: ${status}\n• Fecha: ${orderDate}\n• Total: $${orderDetails.total || 'N/A'}\n\nPuedes ver más detalles en tu cuenta en ${process.env.SHOP_URL}/mi-cuenta`]
+                            }
+                        }]
+                    }
                 });
             }
         }
-        // Sin parámetros específicos
+        // Sin parámetros específicos - mostrar productos destacados
         else {
             const queryParams = {
-                per_page: 5,
+                per_page: 4,
                 orderby: 'date',
                 order: 'desc'
             };
@@ -132,19 +199,50 @@ app.post('/webhook', async (req, res) => {
             
             if (products.length === 0) {
                 res.json({
-                    fulfillmentText: `¡Hola! Soy el asistente de Kāhiko Home. Actualmente no tengo productos para mostrar, pero puedes visitar nuestra tienda en ${process.env.SHOP_URL}/tienda para ver todo nuestro catálogo de muebles y cortinas premium.`
+                    fulfillment_response: {
+                        messages: [{
+                            text: {
+                                text: [`¡Hola! Soy el asistente de Kāhiko Home. Actualmente no tengo productos para mostrar, pero puedes visitar nuestra tienda en ${process.env.SHOP_URL}/tienda para ver todo nuestro catálogo de muebles y cortinas premium.`]
+                            }
+                        }]
+                    }
                 });
             } else {
-                const productList = products.map(p => `• ${p.name} - $${p.price || 'Consultar'}`).join('\n');
+                const productCards = buildProductCards(products);
+                
                 res.json({
-                    fulfillmentText: `¡Bienvenido a Kāhiko Home! Estos son algunos de nuestros productos destacados:\n\n${productList}\n\n¿Buscas algo en específico? Puedes decirme "busco muebles para living" o "quiero ver cortinas roller".`
+                    fulfillment_response: {
+                        messages: [
+                            {
+                                text: {
+                                    text: [`¡Bienvenido a Kāhiko Home! ✨ Estos son algunos de nuestros productos destacados:`]
+                                }
+                            },
+                            {
+                                payload: {
+                                    richContent: [productCards]
+                                }
+                            },
+                            {
+                                text: {
+                                    text: [`¿Buscas algo en específico? Puedes decirme "busco muebles para living" o "quiero ver cortinas roller". Haz clic en las tarjetas para ver más detalles.`]
+                                }
+                            }
+                        ]
+                    }
                 });
             }
         }
     } catch (error) {
         console.error('Error processing webhook:', error);
         res.json({
-            fulfillmentText: 'Lo siento, ocurrió un error al procesar tu solicitud. Por favor, intenta de nuevo más tarde o visita nuestra tienda en ' + process.env.SHOP_URL
+            fulfillment_response: {
+                messages: [{
+                    text: {
+                        text: [`Lo siento, ocurrió un error al procesar tu solicitud. Por favor, intenta de nuevo más tarde o visita nuestra tienda en ${process.env.SHOP_URL}`]
+                    }
+                }]
+            }
         });
     }
 });
