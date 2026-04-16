@@ -21,11 +21,10 @@ const fetchProducts = async (queryParams) => {
         return response.data;
     } catch (error) {
         console.error('Error fetching products:', error);
-        return { error: 'Error fetching products' };
+        return [];
     }
 };
 
-// Función para construir tarjetas visuales
 const buildProductCards = (products) => {
     return products.map(product => {
         let imageUrl = '';
@@ -53,8 +52,8 @@ app.get('/products', async (req, res) => {
 app.post('/webhook', async (req, res) => {
     console.log('Webhook received:', JSON.stringify(req.body, null, 2));
     
-    const parameters = req.body?.queryResult?.parameters || {};
-    const searchTerm = parameters.search || '';
+    const searchTerm = req.body?.queryResult?.parameters?.search || '';
+    console.log('Search term:', searchTerm);
 
     try {
         const queryParams = {
@@ -65,21 +64,22 @@ app.post('/webhook', async (req, res) => {
         };
         
         const products = await fetchProducts(queryParams);
+        console.log('Products found:', products.length);
         
-        if (products.length === 0) {
-            res.json({
+        if (!products || products.length === 0) {
+            return res.json({
                 fulfillment_response: {
                     messages: [{
                         text: { text: [`No encontré productos con "${searchTerm}". Visita https://kahiko.cl/tienda`] }
                     }]
                 }
             });
-            return;
         }
         
         const productCards = buildProductCards(products);
+        console.log('Sending product cards:', JSON.stringify(productCards, null, 2));
         
-        res.json({
+        return res.json({
             fulfillment_response: {
                 messages: [
                     {
@@ -94,7 +94,7 @@ app.post('/webhook', async (req, res) => {
         
     } catch (error) {
         console.error('Error:', error);
-        res.json({
+        return res.json({
             fulfillment_response: {
                 messages: [{
                     text: { text: [`Error. Visita https://kahiko.cl/tienda`] }
