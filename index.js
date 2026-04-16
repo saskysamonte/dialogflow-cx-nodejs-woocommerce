@@ -76,21 +76,24 @@ app.post('/webhook', async (req, res) => {
             });
         }
         
-        const productCards = buildProductCards(products);
-        console.log('Sending product cards:', JSON.stringify(productCards, null, 2));
-        
-        return res.json({
-            fulfillment_response: {
-                messages: [
-                    {
-                        text: { text: [`¡Encontré estos productos para ti!`] }
-                    },
-                    {
-                        payload: { richContent: [productCards] }
-                    }
-                ]
+  // Crear lista de nombres de productos para el mensaje de texto
+const productNames = products.map(p => p.name).join(', ');
+const productListText = products.map(p => `• ${p.name} - ${p.price ? '$' + p.price : 'Consultar'}`).join('\n');
+
+return res.json({
+    fulfillment_response: {
+        messages: [
+            {
+                text: { 
+                    text: [`¡Encontré estos productos para ti!\n\n${productListText}\n\nMira las tarjetas para ver las imágenes.`] 
+                }
+            },
+            {
+                payload: { richContent: [productCards] }
             }
-        });
+        ]
+    }
+});
         
     } catch (error) {
         console.error('Error:', error);
