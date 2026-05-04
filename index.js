@@ -1,5 +1,3 @@
-
-
 require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
@@ -7,8 +5,6 @@ const app = express();
 const port = process.env.PORT || 4000;
 
 const apiProducts = `${process.env.SHOP_URL}/wp-json/wc/v3/products`;
-const apiCategories = `${process.env.SHOP_URL}/wp-json/wc/v3/products/categories`;
-const apiOrders = `${process.env.SHOP_URL}/wp-json/wc/v3/orders`;
 
 app.use(express.json());
 
@@ -21,140 +17,98 @@ const fetchProducts = async (queryParams) => {
             },
             params: queryParams
         });
-        console.log('Fetched products:', response.data);
-        return response.data;  // Return product data
-    } catch (error) {
-        console.error('Error fetching products:', error);
-        return { error: 'Error fetching products' };
-    }
-};
-
-const fetchCategories = async () => {
-    try {
-        const response = await axios.get(apiCategories, {
-            auth: {
-                username: process.env.CONSUMER_KEY,
-                password: process.env.CONSUMER_SECRET
-            }
-        });
+        console.log('Fetched products:', response.data.length);
         return response.data;
     } catch (error) {
-        console.error('Error fetching categories:', error);
-        throw new Error('Could not fetch categories');
+        console.error('Error fetching products:', error);
+        return [];
     }
 };
 
-const fetchOrderDetails = async (orderId) => {
-    try {
-        const response = await axios.get(`${apiOrders}/${orderId}`, {
-            auth: {
-                username: process.env.CONSUMER_KEY,
-                password: process.env.CONSUMER_SECRET
-            }
-        });
-        return response.data;  // Return order details
-    } catch (error) {
-        console.error('Error fetching order details:', error);
-        return { error: 'Error fetching order details' };
-    }
+const buildProductCards = (products) => {
+    return products.map(product => {
+        let imageUrl = '';
+        if (product.images && product.images.length > 0) {
+            imageUrl = product.images[0].src;
+        }
+        
+        const price = product.price ? `$${parseFloat(product.price).toLocaleString('es-CL')}` : 'Consultar precio';
+        
+        return {
+            type: "info",
+            title: product.name,
+            subtitle: price,
+            image: { rawUrl: imageUrl },
+            anchor: { href: product.permalink }
+        };
+    });
 };
 
 app.get('/products', async (req, res) => {
-    const queryParams = req.query;  // Query parameters passed in the request
-
-    const products = await fetchProducts(queryParams);
-
-    if (products.error) {
-        return res.status(500).json(products);
-    }
-
-    return res.json(products);
-});
-
-app.get('/products/categories', async (req, res) => {
-
-});
-
-app.get('/orders/:orderId', async (req, res) => {
-    const { orderId } = req.params;
-
-    if (!orderId) {
-        return res.status(400).json({ error: 'Order ID is required' });
-    }
-
-    const orderDetails = await fetchOrderDetails(orderId);
-    if (orderDetails.error) {
-        return res.status(500).json(orderDetails); // If there's an error fetching order details
-    }
-    
-    res.json(orderDetails); // Send the order details as a JSON response
+    const products = await fetchProducts(req.query);
+    res.json(products);
 });
 
 app.post('/webhook', async (req, res) => {
-    const { queryResult } = req.body;
-
-    console.log(queryResult);
-
-    const intentName = queryResult.intent.displayName;
+    console.log('Webhook received:', JSON.stringify(req.body, null, 2));
+    
+    const searchTerm = req.body?.queryResult?.parameters?.search || '';
+    console.log('Search term:', searchTerm);
 
     try {
-        if (intentName === 'FetchProducts') {
-            const queryParams = {
-                per_page: 10, // Limit the results to 10 products
-                page: 1,      // Page number
-                search: queryResult.parameters.search || '', // Search query from user input
-                category: queryResult.parameters.category || '', // Category filter
-                orderby: 'date',
-                order: 'desc'
-            };
-
-            const products = await fetchProducts(queryParams);
-
-            if (products.length === 0) {
-                res.json({
-                    fulfillmentText: 'Sorry, I couldn’t find any products matching your search.',
-                });
-            } else {
-                const productNames = products.map((product) => product.name).join(', ');
-                res.json({
-                    fulfillmentText: `I found the following products: ${productNames}.`,
-                });
-            }
-        } else if (intentName === 'FetchOrderStatus') {
-            const orderId = queryResult.parameters.orderId;
-
-            if (!orderId) {
-                return res.json({
-                    fulfillmentText: 'Please provide a valid order ID.',
-                });
-            }
-
-            const orderDetails = await fetchOrderDetails(orderId);
-
-            if (orderDetails.error) {
-                res.json({
-                    fulfillmentText: 'Sorry, I couldn\'t fetch the order details.',
-                });
-            } else {
-                const orderStatus = orderDetails.status;
-                res.json({
-                    fulfillmentText: `The status of your order ${orderId} is: ${orderStatus}.`,
-                });
-            }
-        } else {
-            res.json({
-                fulfillmentText: 'Sorry, I didn\'t understand that request.',
+        const queryParams = {
+            per_page: 4,
+            search: searchTerm,
+            orderby: 'date',
+            order: 'desc'
+        };
+        
+        const products = await fetchProducts(queryParams);
+        console.log('Products found:', products.length);
+        
+        if (!products || products.length === 0) {
+            return res.json({
+                fulfillment_response: {
+                    messages: [{
+                        text: { text: [`No encontré productos con "${searchTerm}". Visita https://kahiko.cl/tienda`] }
+                    }]
+                }
             });
         }
+        
+        // Crear las tarjetas visuales
+        const productCards = buildProductCards(products);
+        
+        // Crear lista de nombres de productos para el mensaje de texto
+        const productListText = products.map(p => `• ${p.name} - ${p.price ? '$' + p.price : 'Consultar'}`).join('\n');
+
+        return res.json({
+            fulfillment_response: {
+                messages: [
+                    {
+                        text: { 
+                            text: [`¡Encontré estos productos para ti!\n\n${productListText}\n\nMira las tarjetas para ver las imágenes.`] 
+                        }
+                    },
+                    {
+                        payload: { richContent: [productCards] }
+                    }
+                ]
+            }
+        });
+        
     } catch (error) {
-        console.error('Error processing webhook:', error);
-        res.json({
-            fulfillmentText: 'Sorry, something went wrong while processing your request.',
+        console.error('Error:', error);
+        return res.json({
+            fulfillment_response: {
+                messages: [{
+                    text: { text: [`Error. Visita https://kahiko.cl/tienda`] }
+                }]
+            }
         });
     }
 });
 
-
 app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
+    console.log(`Server running on port ${port}`);
 });

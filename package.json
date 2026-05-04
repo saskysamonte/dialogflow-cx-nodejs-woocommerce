@@ -1,4 +1,12 @@
 {
+  "name": "dialogflow-woocommerce-webhook",
+  "version": "1.0.0",
+  "description": "Webhook para conectar Dialogflow CX con WooCommerce",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
   "dependencies": {
     "axios": "^1.7.9",
     "dotenv": "^16.4.7",
